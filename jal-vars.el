@@ -40,8 +40,12 @@ This is useful for restarting the LSP/Eglot server to pick up the new agents."
   :type 'hook
   :group 'jal)
 
-(defvar jal--original-lsp-java-vmargs nil
-  "Stores the original value of `lsp-java-vmargs' before JAL modification.")
+(defvar jal-current-java-key-function nil
+  "Function called with no arguments that returns the active java binary path.
+Each client module (e.g. `jal-client-lsp', `jal-client-eglot') sets this
+during setup so the core cache functions remain client-agnostic.
+When nil, `jal--current-java-key' falls back to resolving the first
+`java' found on PATH.")
 
 (provide 'jal-vars)
 ;;; jal-vars.el ends here

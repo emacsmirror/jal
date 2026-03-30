@@ -115,10 +115,17 @@ It skips execution and returns nil if prerequisites were not met."
          (project-root (and project (file-name-as-directory (project-root project))))
          (cache-file (and project-root (jal--get-cache-file project-root))))
 
-    (when (and cache-file
-               (file-exists-p cache-file)
-               (not (y-or-n-p "JAL cache file exists. Override it? ")))
-      (user-error "JAL: Detection cancelled"))
+    (when cache-file
+      (let* ((existing-config (and (file-exists-p cache-file)
+                                   (jal--read-project-config project-root)))
+             (java-key (jal--current-java-key))
+             (scope-exists (and (jal--config-scoped-p existing-config)
+                                (assoc java-key existing-config))))
+        (when (and scope-exists
+                   (not (y-or-n-p
+                         (format "JAL: Agents already configured for Java at '%s'. Override? "
+                                 java-key))))
+          (user-error "JAL: Detection cancelled"))))
 
     (let* ((agents-to-check (mapcar #'car jal-agents-config))
            (detection-results (jal--detect-agents-core agents-to-check)))

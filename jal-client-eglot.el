@@ -22,6 +22,13 @@ ORIGINAL-CONTACT is the original contact entry from `eglot-server-programs'."
         (append contact (jal-get-vmargs-with-javaagents))
       contact)))
 
+(defun jal--eglot-current-java-key ()
+  "Return the java binary path active for the current Eglot session.
+Resolves the first `java' found on PATH; override this function or
+set `jal-current-java-key-function' directly if your Eglot setup
+configures a specific JVM."
+  (executable-find "java"))
+
 (defun jal--eglot-reconnect ()
   "Reconnect eglot if active."
   (when (and (bound-and-true-p eglot-managed-mode)
@@ -42,12 +49,12 @@ User agents override known agents by artifact-id.
 If AGENTS is nil, uses the default configuration.
 This function should be called in the :init section for eglot."
   (setq jal-agents-config (jal--merge-agent-configs (or agents '())))
+  (setq jal-current-java-key-function #'jal--eglot-current-java-key)
   (add-hook 'eglot-connect-hook #'jal-find-and-configure-agents)
   (add-hook 'jal-agents-detected-hook #'jal--eglot-reconnect)
   (let ((entry (assoc '(java-mode jdtls-mode) eglot-server-programs)))
     (unless entry
       (setq entry (assoc 'java-mode eglot-server-programs)))
-
     (when entry
       (let ((original-contact (cdr entry)))
         (setcdr entry (lambda (&rest _args) (jal--eglot-contact original-contact)))))))
