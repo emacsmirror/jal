@@ -188,9 +188,14 @@ Returns the list of agent configurations found, or nil."
 
           (if (or (null agent-configs)
                   (not (proper-list-p agent-configs)))
-              (if (y-or-n-p (format "JAL: Do you want to setup java agents for this project? "))
-                  (jal-detect-java-agents)
-                (message "JAL: Java agents configuration skipped for this session. Run M-x jal-detect-java-agents to do it later."))
+              (let* ((project (project-current))
+                     (project-root (and project (project-root project)))
+                     (build-system (and project-root (jal--detect-build-system project-root))))
+                (if (not build-system)
+                    (message "JAL: Not a Maven/Gradle project, skipping agent setup.")
+                  (if (y-or-n-p "JAL: Do you want to setup java agents for this project? ")
+                      (jal-detect-java-agents)
+                    (message "JAL: Java agents configuration skipped for this session. Run M-x jal-detect-java-agents to do it later."))))
 
             (message "JAL: Found %d cached agent(s) for this project. Applying configurations." (length agent-configs))
 
