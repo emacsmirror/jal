@@ -239,9 +239,9 @@ Returns the first matching executable in the current PATH."
         (jal-eglot-java-setup))
       ;; No warning should be emitted during setup itself.
       (should (null warned))
-      (should (memq #'jal--eglot-java-check-interface eglot-connect-hook))))
-  (remove-hook 'eglot-connect-hook #'jal-find-and-configure-agents)
-  (remove-hook 'eglot-connect-hook #'jal--eglot-java-check-interface)
+      (should (memq #'jal--eglot-connect-hook-check-interface eglot-connect-hook))))
+  (remove-hook 'eglot-connect-hook #'jal--eglot-connect-hook-find-agents)
+  (remove-hook 'eglot-connect-hook #'jal--eglot-connect-hook-check-interface)
   (advice-remove 'eglot-java--eclipse-jdt-contact #'jal--eglot-java-contact-advice))
 
 (ert-deftest jal-test/eglot-check-interface-warns-when-function-missing ()

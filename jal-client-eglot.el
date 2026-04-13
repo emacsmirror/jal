@@ -60,6 +60,16 @@ Warns at most once per Emacs session to avoid repeat messages on reconnects."
     (setq jal--eglot-java-interface-warning-issued t)
     (jal--warn-interface-changed "eglot-java--eclipse-jdt-contact" "eglot-java")))
 
+(defun jal--eglot-connect-hook-check-interface (_server)
+  "Hook wrapper: call `jal--eglot-java-check-interface' from `eglot-connect-hook'.
+Accepts the SERVER argument passed by the hook."
+  (jal--eglot-java-check-interface))
+
+(defun jal--eglot-connect-hook-find-agents (_server)
+  "Hook wrapper: call `jal-find-and-configure-agents' from `eglot-connect-hook'.
+Accepts the SERVER argument passed by the hook."
+  (jal-find-and-configure-agents))
+
 ;;;###autoload
 (defun jal-eglot-java-setup ()
   "Configure JAL for eglot-java.
@@ -70,9 +80,10 @@ This function is called automatically when eglot-java is loaded."
   (setq jal-agents-config (jal--merge-agent-configs jal-additional-agents))
   (setq jal-current-java-key-function #'jal--eglot-current-java-key)
   (advice-add 'eglot-java--eclipse-jdt-contact :around #'jal--eglot-java-contact-advice)
-  (add-hook 'eglot-connect-hook #'jal--eglot-java-check-interface)
-  (add-hook 'eglot-connect-hook #'jal-find-and-configure-agents)
-  (add-hook 'jal-agents-detected-hook #'jal--eglot-reconnect))
+  (add-hook 'eglot-connect-hook #'jal--eglot-connect-hook-check-interface)
+  (add-hook 'eglot-connect-hook #'jal--eglot-connect-hook-find-agents)
+  (add-hook 'jal-agents-detected-hook #'jal--eglot-reconnect)
+  (setq jal--eglot-java-interface-warning-issued nil))
 
 (provide 'jal-client-eglot)
 ;;; jal-client-eglot.el ends here
