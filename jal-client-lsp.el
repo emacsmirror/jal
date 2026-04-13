@@ -39,6 +39,9 @@ ORIG-FN is the original function being advised.
   (when (and (bound-and-true-p lsp-mode)
              (fboundp 'lsp-workspace-restart)
              (fboundp 'lsp-workspaces))
+    ;; Clear the session guard so the post-restart hook re-runs and picks up
+    ;; the freshly written cache instead of skipping silently.
+    (clrhash jal--configured-scopes)
     (dolist (workspace (lsp-workspaces))
       (lsp-workspace-restart workspace))))
 

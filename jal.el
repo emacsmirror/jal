@@ -44,6 +44,44 @@
    (t nil)))
 
 ;; ====================================================================
+;; Detection Progress
+;; ====================================================================
+
+(defvar jal--detection-in-progress nil
+  "Non-nil while async agent detection is running.
+Prevents duplicate detection processes from being launched concurrently.")
+
+(defvar jal--configured-scopes (make-hash-table :test 'equal)
+  "Hash-set of \"project-root|java-key\" strings already handled this session.
+Prevents `jal-find-and-configure-agents' from re-running on the LSP restart
+that JAL itself triggers after first-time detection.")
+
+(defconst jal--spinner-frames ["-" "\\" "|" "/"]
+  "Animation frames for the detection progress spinner.")
+
+(defvar jal--spinner-timer nil
+  "Active timer for the detection progress spinner, or nil when idle.")
+
+(defun jal--spinner-start (msg)
+  "Animate a spinner in the echo area prefixed with MSG while detection runs."
+  (let ((i 0))
+    (setq jal--spinner-timer
+          (run-with-timer
+           0 0.1
+           (lambda ()
+             (message "%s %s" msg
+                      (aref jal--spinner-frames
+                            (% i (length jal--spinner-frames))))
+             (setq i (1+ i)))))))
+
+(defun jal--spinner-stop ()
+  "Cancel the detection spinner and clear the echo area."
+  (when jal--spinner-timer
+    (cancel-timer jal--spinner-timer)
+    (setq jal--spinner-timer nil)
+    (message nil)))
+
+;; ====================================================================
 ;; Core Hook Function (Functional Injector)
 ;; ====================================================================
 
@@ -77,15 +115,13 @@ project, and builds the javaagents arguments."
 ;; Interactive Flow and Execution
 ;; ====================================================================
 
-(defun jal--detect-agents-core (agent-ids-to-check)
-  "Detect AGENT-IDS-TO-CHECK in the project.
-This is an internal helper to run project and build system checks,
-detecting agents. It returns the list of detected agent entries, or nil
-on any failure (after reporting)."
+(defun jal--detect-agents-core-async (agent-ids-to-check callback)
+  "Detect AGENT-IDS-TO-CHECK in the project asynchronously.
+CALLBACK is called with the list of detected agent entries, or nil on failure."
   (if (not jal--feature-supported-p)
       (progn
         (message "JAL: Prerequisites (project) not met. Skipping operation.")
-        nil)
+        (funcall callback nil))
 
     (let* ((project (project-current))
            (project-root (and project (project-root project)))
@@ -94,29 +130,30 @@ on any failure (after reporting)."
       (cond
        ((not project-root)
         (message "JAL: Not in a recognized project. Skipping detection.")
-        nil)
+        (funcall callback nil))
 
        ((not build-system)
         (message "JAL: No supported build system found. Skipping detection.")
-        nil)
+        (funcall callback nil))
 
        (t
-        (let ((agents-list (pcase build-system
-                             ('maven (jal--maven-detect-agents project-root agent-ids-to-check))
-                             ('gradle (jal--gradle-detect-agents project-root agent-ids-to-check))
-                             (_ nil))))
+        (jal--spinner-start
+         (format "JAL: Running %s dependency analysis" (symbol-name build-system)))
+        (let ((wrapped-callback
+               (lambda (results)
+                 (jal--spinner-stop)
+                 (funcall callback results))))
+          (pcase build-system
+            ('maven  (jal--maven-detect-agents-async  project-root agent-ids-to-check wrapped-callback))
+            ('gradle (jal--gradle-detect-agents-async project-root agent-ids-to-check wrapped-callback))
+            (_ (jal--spinner-stop) (funcall callback nil)))))))))
 
-          (if (null agents-list)
-              (progn
-                (message "JAL: No agents found in project dependencies.")
-                nil)
-
-            agents-list)))))))
 
 ;;;###autoload
 (defun jal-detect-java-agents ()
-  "Detects all known java agents in the project.
-It skips execution and returns nil if prerequisites were not met."
+  "Detect all known java agents in the project asynchronously.
+Starts async detection and returns immediately; results are cached
+and `jal-agents-detected-hook' is run once detection completes."
   (interactive)
 
   (let* ((project (and (fboundp 'project-current) (project-current)))
@@ -135,31 +172,36 @@ It skips execution and returns nil if prerequisites were not met."
                                  java-key))))
           (user-error "JAL: Detection cancelled"))))
 
-    (let* ((agents-to-check (mapcar #'car jal-agents-config))
-           (detection-results (jal--detect-agents-core agents-to-check)))
-      (when detection-results
-        (message "JAL: Detected agents: %S" (mapcar #'car detection-results))
-
-        (dolist (agent-entry detection-results)
-          (let* ((agent-id (car agent-entry))
-                 (detected-path (cadr agent-entry))
-                 (detected-version (caddr agent-entry))
-                 (config (cdr (assoc agent-id jal-agents-config)))
-                 (config-params (plist-get config :params))
-                 (agent-params (cond
-                                ;; If params explicitly set (even if empty), use them
-                                ((plist-member config :params) config-params)
-                                ;; Otherwise, ask user
-                                (t (read-string (format "Params for %s (optional): " agent-id) "" nil nil)))))
-
-            (jal--cache-agent-config agent-id detected-path detected-version agent-params)))
-
-        (run-hooks 'jal-agents-detected-hook)
-        (not detection-results)))))
+    (if jal--detection-in-progress
+        (message "JAL: Detection already in progress.")
+      (setq jal--detection-in-progress t)
+      (let ((agents-to-check (mapcar #'car jal-agents-config)))
+        (jal--detect-agents-core-async
+         agents-to-check
+         (lambda (detection-results)
+           (setq jal--detection-in-progress nil)
+           (if (null detection-results)
+               (message "JAL: No agents found in project dependencies.")
+             (message "JAL: Detected agents: %S" (mapcar #'car detection-results))
+             (dolist (agent-entry detection-results)
+               (let* ((agent-id (car agent-entry))
+                      (detected-path (cadr agent-entry))
+                      (detected-version (caddr agent-entry))
+                      (config (cdr (assoc agent-id jal-agents-config)))
+                      (config-params (plist-get config :params))
+                      (agent-params (cond
+                                     ;; If params explicitly set (even if empty), use them
+                                     ((plist-member config :params) config-params)
+                                     ;; Otherwise, ask user
+                                     (t (read-string
+                                         (format "Params for %s (optional): " agent-id)
+                                         "" nil nil)))))
+                 (jal--cache-agent-config agent-id detected-path detected-version agent-params)))
+             (run-hooks 'jal-agents-detected-hook))))))))
 
 ;;;###autoload
 (defun jal-detect-agent-interactively (agent-id)
-  "Detect the AGENT-ID in the current project.
+  "Detect the AGENT-ID in the current project asynchronously.
 It uses the project build system (Maven or Gradle) to proceed,
 caching the result. Used for single, non-batch detection."
   (interactive
@@ -167,17 +209,24 @@ caching the result. Used for single, non-batch detection."
                           (mapcar #'car jal-agents-config)
                           nil nil nil nil "lombok")))
 
-  (let ((detection-results (jal--detect-agents-core (list agent-id))))
-
-    (when detection-results
-      (let* ((agent-entry (car detection-results))
-             (detected-path (cadr agent-entry))
-             (detected-version (caddr agent-entry))
-             (agent-params nil))
-
-        (setq agent-params (read-string (format "Inform any parameters required by agent %s (optional, e.g., destfile=target/jacoco.exec): " agent-id) "" nil nil))
-        (message "JAL: Detected agent '%s' v%s. Caching setup." agent-id detected-version)
-        (jal--cache-agent-config agent-id detected-path detected-version agent-params)))))
+  (if jal--detection-in-progress
+      (message "JAL: Detection already in progress.")
+    (setq jal--detection-in-progress t)
+    (jal--detect-agents-core-async
+     (list agent-id)
+     (lambda (detection-results)
+       (setq jal--detection-in-progress nil)
+       (if (null detection-results)
+           (message "JAL: Agent '%s' not found in project dependencies." agent-id)
+         (let* ((agent-entry (car detection-results))
+                (detected-path (cadr agent-entry))
+                (detected-version (caddr agent-entry))
+                (agent-params (read-string
+                               (format "Inform any parameters required by agent %s (optional, e.g., destfile=target/jacoco.exec): "
+                                       agent-id)
+                               "" nil nil)))
+           (message "JAL: Detected agent '%s' v%s. Caching setup." agent-id detected-version)
+           (jal--cache-agent-config agent-id detected-path detected-version agent-params)))))))
 
 
 ;; ====================================================================
@@ -192,30 +241,42 @@ Returns the list of agent configurations found, or nil."
 
   (if jal--feature-supported-p
       (progn
-        (let ((agent-configs (jal--load-agent-configs-from-project)))
+        (let* ((project (project-current))
+               (project-root (and project (file-name-as-directory (project-root project))))
+               (java-key (jal--current-java-key))
+               (scope-key (and project-root (concat project-root "|" java-key))))
 
-          (if (or (null agent-configs)
-                  (not (proper-list-p agent-configs)))
-              (let* ((project (project-current))
-                     (project-root (and project (project-root project)))
-                     (build-system (and project-root (jal--detect-build-system project-root))))
-                (if (not build-system)
-                    (message "JAL: Not a Maven/Gradle project, skipping agent setup.")
-                  (if (y-or-n-p "JAL: Do you want to setup java agents for this project? ")
-                      (jal-detect-java-agents)
-                    (message "JAL: Java agents configuration skipped for this session. Run M-x jal-detect-java-agents to do it later."))))
+          ;; Skip silently if we've already handled this project+JVM combo this
+          ;; session (e.g. on the LSP restart that JAL itself triggers).
+          (when (and scope-key
+                     (not (gethash scope-key jal--configured-scopes)))
+            (puthash scope-key t jal--configured-scopes)
 
-            (message "JAL: Found %d cached agent(s) for this project. Applying configurations." (length agent-configs))
+            (let ((agent-configs (jal--load-agent-configs-from-project)))
 
-            (dolist (agent-entry agent-configs)
-              (let ((agent-id (car agent-entry))
-                    (path (cadr agent-entry))
-                    (version (cadddr agent-entry)))
+              (if (or (null agent-configs)
+                      (not (proper-list-p agent-configs)))
+                  (let ((build-system (and project-root
+                                           (jal--detect-build-system project-root))))
+                    (if (not build-system)
+                        (message "JAL: Not a Maven/Gradle project, skipping agent setup.")
+                      (if (y-or-n-p "JAL: Do you want to setup java agents for this project? ")
+                          (jal-detect-java-agents)
+                        ;; User declined — forget this scope so the question is
+                        ;; asked again on the next Emacs session.
+                        (remhash scope-key jal--configured-scopes)
+                        (message "JAL: Java agents configuration skipped for this session. Run M-x jal-detect-java-agents to do it later."))))
 
-                (when (and (stringp path) (file-exists-p path))
-                  (message "JAL: Agent %s (v%s) configured." agent-id version))))
-            (message "JAL: Configuration complete.")
-            agent-configs)))
+                (message "JAL: Found %d cached agent(s) for this project. Applying configurations."
+                         (length agent-configs))
+                (dolist (agent-entry agent-configs)
+                  (let ((agent-id (car agent-entry))
+                        (path (cadr agent-entry))
+                        (version (cadddr agent-entry)))
+                    (when (and (stringp path) (file-exists-p path))
+                      (message "JAL: Agent %s (v%s) configured." agent-id version))))
+                (message "JAL: Configuration complete.")
+                agent-configs)))))
 
     (warn "JAL: Search for agents skipped. Prerequisites not met.")
     nil))

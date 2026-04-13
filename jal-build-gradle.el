@@ -53,45 +53,53 @@ Returns an alist of (artifact-id . (group version absolute-path)) entries."
             (push (list artifact group version path) results)))))
     (nreverse results)))
 
-(defun jal--gradle-detect-agents (project-root agents-list)
-  "Run Gradle detection for AGENTS-LIST on PROJECT-ROOT.
-Returns a list of (agent-id path version) entries."
-  (let ((gradle-cmd (if (file-executable-p (expand-file-name "gradlew" project-root))
-                        "./gradlew"
-                      (progn
-                        (jal--check-executable "gradle" "JAL: Neither ./gradlew nor gradle found")
-                        "gradle")))
-        (default-directory (or project-root default-directory))
-        (found-agents '()))
-    (message "JAL: Running Gradle dependency analysis for %d agent(s)..." (length agents-list))
-    (let* ((init-file (jal--gradle-write-init-script agents-list))
-           (cmd (format "%s --no-daemon -q -I %s 2>/dev/null" gradle-cmd init-file))
-           (output (condition-case err
-                       (with-output-to-string
-                         (call-process-shell-command cmd nil standard-output nil))
-                     (error
-                      (warn "JAL Gradle Error: Failed to execute '%s'. Error: %S" cmd err)
-                      ""))))
-      (delete-file init-file)
-      (let ((parsed (jal--gradle-parse-init-output output)))
-        (dolist (entry parsed)
-          (let* ((artifact-id (nth 0 entry))
-                 (group-id    (nth 1 entry))
-                 (version     (nth 2 entry))
-                 (abs-path    (nth 3 entry)))
-            ;; Prefer the absolute path the init script gives us; fall back to
-            ;; jal--resolve-agent-path so custom :jar-path patterns still work.
-            (let ((agent-path
-                   (if (and abs-path (file-exists-p abs-path))
-                       abs-path
-                     (jal--resolve-agent-path
-                      (file-name-directory abs-path)
-                      group-id artifact-id version))))
-              (when agent-path
-                (push (list artifact-id agent-path version) found-agents))))))
-      (when (null found-agents)
-        (message "JAL: No agents found in Gradle dependencies."))
-      (nreverse found-agents))))
+(defun jal--gradle-detect-agents-async (project-root agents-list callback)
+  "Detect AGENTS-LIST in PROJECT-ROOT using Gradle asynchronously.
+Calls CALLBACK with a list of (agent-id path version) entries, or nil on failure."
+  (let* ((gradle-cmd (cond
+                       ((file-executable-p (expand-file-name "gradlew" project-root)) "./gradlew")
+                       ((executable-find "gradle") "gradle")
+                       (t (warn "JAL: Neither ./gradlew nor gradle found") nil)))
+         (default-directory (or project-root default-directory)))
+    (if (not gradle-cmd)
+        (funcall callback nil)
+      (let* ((init-file (jal--gradle-write-init-script agents-list))
+             (cmd (format "%s --no-daemon -q -I %s 2>/dev/null" gradle-cmd init-file))
+             (output-buffer (generate-new-buffer " *jal-gradle-detection*")))
+        (make-process
+         :name "jal-gradle-detection"
+         :buffer output-buffer
+         :command (list shell-file-name shell-command-switch cmd)
+         :sentinel
+         (lambda (proc _event)
+           (when (memq (process-status proc) '(exit signal))
+             (let* ((output (with-current-buffer (process-buffer proc)
+                              (buffer-string)))
+                    (found-agents '()))
+               (when (buffer-live-p (process-buffer proc))
+                 (kill-buffer (process-buffer proc)))
+               (when (file-exists-p init-file)
+                 (delete-file init-file))
+               (let ((parsed (jal--gradle-parse-init-output output)))
+                 (dolist (entry parsed)
+                   (let* ((artifact-id (nth 0 entry))
+                          (group-id    (nth 1 entry))
+                          (version     (nth 2 entry))
+                          (abs-path    (nth 3 entry)))
+                     ;; Prefer the absolute path the init script gives us; fall back to
+                     ;; jal--resolve-agent-path so custom :jar-path patterns still work.
+                     (let ((agent-path
+                            (if (and abs-path (file-exists-p abs-path))
+                                abs-path
+                              (jal--resolve-agent-path
+                               (file-name-directory abs-path)
+                               group-id artifact-id version))))
+                       (when agent-path
+                         (push (list artifact-id agent-path version) found-agents)))))
+                 (when (null found-agents)
+                   (message "JAL: No agents found in Gradle dependencies."))
+                 (funcall callback (nreverse found-agents)))))))))))
+
 
 (provide 'jal-build-gradle)
 ;;; jal-build-gradle.el ends here

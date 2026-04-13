@@ -43,6 +43,9 @@ falling back to the first `java' on PATH."
              (fboundp 'eglot-current-server))
     (let ((server (eglot-current-server)))
       (when server
+        ;; Clear the session guard so the post-reconnect hook re-runs and picks
+        ;; up the freshly written cache instead of skipping silently.
+        (clrhash jal--configured-scopes)
         (eglot-reconnect server)))))
 
 (defvar jal--eglot-java-interface-warning-issued nil

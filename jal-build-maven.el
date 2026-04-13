@@ -25,17 +25,28 @@ Returns nil if the artifact is not found."
           mvn-agent-info)
       nil)))
 
-(defun jal--maven-run-command (cmd context-id)
-  "Return the output of CMD as a string, using CONTEXT-ID to identify it.
-Returns nil on failure, while logging the error using context-id."
-  (let ((mvn-output nil))
-    (condition-case err
-        (setq mvn-output (with-output-to-string
-                           (call-process-shell-command cmd nil standard-output nil)))
-      (error
-       (warn "JAL Maven Error: Failed to execute command for %s. Error: %S" context-id err)
-       (setq mvn-output nil)))
-    mvn-output))
+(defun jal--maven-run-command-async (cmd project-root context-id callback)
+  "Run CMD asynchronously with PROJECT-ROOT as working directory.
+CONTEXT-ID identifies the command for error reporting.
+CALLBACK is called with the output string on success, or nil on failure."
+  (let ((output-buffer (generate-new-buffer (format " *jal-maven-%s*" context-id)))
+        (default-directory (or project-root default-directory)))
+    (make-process
+     :name (format "jal-maven-%s" context-id)
+     :buffer output-buffer
+     :command (list shell-file-name shell-command-switch cmd)
+     :sentinel
+     (lambda (proc _event)
+       (when (memq (process-status proc) '(exit signal))
+         (let* ((exit-code (process-exit-status proc))
+                (output (when (= 0 exit-code)
+                          (with-current-buffer (process-buffer proc)
+                            (buffer-string)))))
+           (when (buffer-live-p (process-buffer proc))
+             (kill-buffer (process-buffer proc)))
+           (unless (= 0 exit-code)
+             (warn "JAL Maven Error: Command failed for %s (exit %d)" context-id exit-code))
+           (funcall callback output)))))))
 
 (defun jal--maven-extract-version (coordinate-string)
   "Extract the version string from the Maven COORDINATE-STRING.
@@ -60,37 +71,53 @@ Handles G:A:V (3), G:A:P:V:S (5), and G:A:P:C:V:S (6) formats."
                count
                coordinate-string))))))
 
-(defun jal--maven-detect-agents (project-root agents-list)
-  "Run Maven detection for AGENTS-LIST on PROJECT-ROOT.
-Returns list of (agent-id path version)."
-  (jal--check-executable "mvn" "JAL: Maven executable not found in your PATH")
-  (let ((default-directory (or project-root default-directory))
-        (found-agents '()))
-    (message "JAL: Running Maven dependency analysis for %s agents..." (length agents-list))
-    (let* ((mvn-repo-cmd "mvn help:evaluate -Dexpression=settings.localRepository -q -DforceStdout 2>/dev/null")
-           (repo-path (jal--maven-run-command mvn-repo-cmd "local-repo-lookup")))
-      (if (or (null repo-path) (string-empty-p repo-path))
-          (progn
-            (warn "Maven local repository path not found via 'settings.localRepository'. Cannot proceed.")
-            nil)
-        (let* ((all-agent-ids (mapconcat #'identity agents-list ","))
-               (mvn-list-cmd (format "mvn dependency:list -DincludeArtifactIds=%s 2>/dev/null" all-agent-ids))
-               (full-mvn-output (jal--maven-run-command mvn-list-cmd "dependency-list")))
-          (if (not full-mvn-output)
-              (progn
-                (warn "Maven failed to run or returned no output.")
-                nil)
-            (dolist (agent-id agents-list)
-              (let* (
-                     (agent-info (jal--maven-extract-agent-dependency-info full-mvn-output agent-id))
-                     (agent-version (jal--maven-extract-version (when agent-info (string-trim agent-info)))))
-                (when (and agent-version (not (string-empty-p agent-version)))
-                  (let* ((parts (split-string agent-info ":"))
-                         (group-id (nth 0 parts)))
-                    (let ((agent-path (jal--resolve-agent-path repo-path group-id agent-id agent-version)))
-                      (when agent-path
-                        (setq found-agents (cons (list agent-id agent-path agent-version) found-agents))))))))
-            (nreverse found-agents)))))))
+(defun jal--maven-detect-agents-async (project-root agents-list callback)
+  "Detect AGENTS-LIST in PROJECT-ROOT using Maven asynchronously.
+Calls CALLBACK with a list of (agent-id path version) entries, or nil on failure."
+  (if (not (executable-find "mvn"))
+      (progn
+        (warn "JAL: Maven executable not found in your PATH")
+        (funcall callback nil))
+    ;; Step 1: resolve the local Maven repository path
+    (jal--maven-run-command-async
+     "mvn -B help:evaluate -Dexpression=settings.localRepository -q -DforceStdout 2>/dev/null"
+     project-root
+     "local-repo-lookup"
+     (lambda (repo-path)
+       (if (or (null repo-path) (string-empty-p (string-trim repo-path)))
+           (progn
+             (warn "Maven local repository path not found via 'settings.localRepository'. Cannot proceed.")
+             (funcall callback nil))
+         ;; Strip ANSI escape sequences and trim whitespace
+         (let* ((repo-path (replace-regexp-in-string "\033\\[[0-9;]*m" "" (string-trim repo-path)))
+                ;; Build the dependency list command
+                (all-agent-ids (mapconcat #'identity agents-list ","))
+                (mvn-list-cmd (format "mvn -B dependency:list -DincludeArtifactIds=%s 2>/dev/null"
+                                      all-agent-ids)))
+           (jal--maven-run-command-async
+            mvn-list-cmd
+            project-root
+            "dependency-list"
+            (lambda (full-mvn-output)
+              (if (not full-mvn-output)
+                  (progn
+                    (warn "Maven failed to run or returned no output.")
+                    (funcall callback nil))
+                (let ((found-agents '()))
+                  (dolist (agent-id agents-list)
+                    (let* ((agent-info (jal--maven-extract-agent-dependency-info
+                                        full-mvn-output agent-id))
+                           (agent-version (jal--maven-extract-version
+                                           (when agent-info (string-trim agent-info)))))
+                      (when (and agent-version (not (string-empty-p agent-version)))
+                        (let* ((parts (split-string agent-info ":"))
+                               (group-id (nth 0 parts))
+                               (agent-path (jal--resolve-agent-path
+                                            repo-path group-id agent-id agent-version)))
+                          (when agent-path
+                            (push (list agent-id agent-path agent-version) found-agents))))))
+                  (funcall callback (nreverse found-agents))))))))))))
+
 
 (provide 'jal-build-maven)
 ;;; jal-build-maven.el ends here
