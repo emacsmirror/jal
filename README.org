@@ -30,13 +30,37 @@ arguments to your LSP server's startup command.
 
 ** Installation
 
-*** Manual
+*** Prerequisites
 
-Clone the repository and add it to your ~load-path~.
+JAL integrates with either =lsp-java= or =eglot-java= (note: plain =eglot= is *not*
+supported: =eglot-java= is required). At least one of these must be installed:
+
+- [[https://github.com/emacs-lsp/lsp-java][lsp-java]] - LSP client for Java using JDTLS
+- [[https://github.com/yveszoundi/eglot-java][eglot-java]] - eglot-java extension for Emacs
+
+JAL must be loaded *before* =lsp-java= or =eglot-java= so the integration hooks are
+registered in time.
+
+*** Using ~use-package~ with a local clone
+
+Clone the repository to a local directory and point ~use-package~ at it:
 
 #+begin_src elisp
-(add-to-list 'load-path "/path/to/java-agent-loader")
-(require 'jal)
+(use-package jal
+  :load-path "/path/to/java-agent-loader"
+  :config
+  (setq jal-auto-setup t))
+#+end_src
+
+*** Using ~use-package~ with ~package-vc~ (Emacs 29+)
+
+No clone needed: Emacs fetches the package directly from GitHub:
+
+#+begin_src elisp
+(use-package jal
+  :vc (:url "https://github.com/saulotoledo/java-agent-loader" :rev :newest)
+  :config
+  (setq jal-auto-setup t))
 #+end_src
 
 *** Using straight.el
