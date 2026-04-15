@@ -73,32 +73,46 @@ Calls CALLBACK with a list of (agent-id path version) entries, or nil on failure
          :sentinel
          (lambda (proc _event)
            (when (memq (process-status proc) '(exit signal))
-             (let* ((output (with-current-buffer (process-buffer proc)
+             (let* ((exit-code (process-exit-status proc))
+                    (output (with-current-buffer (process-buffer proc)
                               (buffer-string)))
                     (found-agents '()))
                (when (buffer-live-p (process-buffer proc))
                  (kill-buffer (process-buffer proc)))
                (when (file-exists-p init-file)
                  (delete-file init-file))
-               (let ((parsed (jal--gradle-parse-init-output output)))
-                 (dolist (entry parsed)
-                   (let* ((artifact-id (nth 0 entry))
-                          (group-id    (nth 1 entry))
-                          (version     (nth 2 entry))
-                          (abs-path    (nth 3 entry)))
-                     ;; Prefer the absolute path the init script gives us; fall back to
-                     ;; jal--resolve-agent-path so custom :jar-path patterns still work.
-                     (let ((agent-path
-                            (if (and abs-path (file-exists-p abs-path))
-                                abs-path
-                              (jal--resolve-agent-path
-                               (file-name-directory abs-path)
-                               group-id artifact-id version))))
-                       (when agent-path
-                         (push (list artifact-id agent-path version) found-agents)))))
-                 (when (null found-agents)
-                   (message "JAL: No agents found in Gradle dependencies."))
-                 (funcall callback (nreverse found-agents)))))))))))
+               (if (not (= 0 exit-code))
+                   (let* ((error-lines (seq-filter
+                                        (lambda (l)
+                                          (string-match-p "\\(^FAILURE\\|^> \\|^\\* What went wrong\\|^Error\\)" l))
+                                        (split-string output "\n" t)))
+                          (error-summary (if error-lines
+                                             (mapconcat #'identity error-lines "\n")
+                                           output)))
+                     (jal--debug-log "Gradle command failed (exit %d):\n%s"
+                                    exit-code error-summary)
+                     (warn "JAL Gradle Error: Command failed (exit %d). Check the buffer %s for details." exit-code jal--debug-buffer-name)
+                     (jal-show-debug-log)
+                     (funcall callback nil))
+                 (let ((parsed (jal--gradle-parse-init-output output)))
+                   (dolist (entry parsed)
+                     (let* ((artifact-id (nth 0 entry))
+                            (group-id    (nth 1 entry))
+                            (version     (nth 2 entry))
+                            (abs-path    (nth 3 entry)))
+                       ;; Prefer the absolute path the init script gives us; fall back to
+                       ;; jal--resolve-agent-path so custom :jar-path patterns still work.
+                       (let ((agent-path
+                              (if (and abs-path (file-exists-p abs-path))
+                                  abs-path
+                                (jal--resolve-agent-path
+                                 (file-name-directory abs-path)
+                                 group-id artifact-id version))))
+                         (when agent-path
+                           (push (list artifact-id agent-path version) found-agents)))))
+                   (when (null found-agents)
+                     (message "JAL: No agents found in Gradle dependencies."))
+                   (funcall callback (nreverse found-agents))))))))))))
 
 
 (provide 'jal-build-gradle)

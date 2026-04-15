@@ -39,13 +39,22 @@ CALLBACK is called with the output string on success, or nil on failure."
      (lambda (proc _event)
        (when (memq (process-status proc) '(exit signal))
          (let* ((exit-code (process-exit-status proc))
-                (output (when (= 0 exit-code)
-                          (with-current-buffer (process-buffer proc)
-                            (buffer-string)))))
+                (raw-output (with-current-buffer (process-buffer proc)
+                              (buffer-string)))
+                (output (when (= 0 exit-code) raw-output)))
            (when (buffer-live-p (process-buffer proc))
              (kill-buffer (process-buffer proc)))
            (unless (= 0 exit-code)
-             (warn "JAL Maven Error: Command failed for %s (exit %d)" context-id exit-code))
+             (let* ((error-lines (seq-filter
+                                  (lambda (l) (string-match-p "^\\[ERROR\\]" l))
+                                  (split-string raw-output "\n" t)))
+                    (error-summary (if error-lines
+                                       (mapconcat #'identity error-lines "\n")
+                                     raw-output)))
+               (jal--debug-log "Maven command failed for %s (exit %d):\n%s"
+                               context-id exit-code error-summary))
+             (warn "JAL Maven Error: Command failed for %s (exit %d). Check the buffer %s for details." context-id exit-code jal--debug-buffer-name)
+             (jal-show-debug-log))
            (funcall callback output)))))))
 
 (defun jal--maven-extract-version (coordinate-string)
@@ -101,6 +110,7 @@ Calls CALLBACK with a list of (agent-id path version) entries, or nil on failure
             (lambda (full-mvn-output)
               (if (not full-mvn-output)
                   (progn
+                    (jal--debug-log "Maven failed to run or returned no output. Command: %s" mvn-list-cmd)
                     (warn "Maven failed to run or returned no output.")
                     (funcall callback nil))
                 (let ((found-agents '()))

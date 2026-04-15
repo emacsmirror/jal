@@ -14,6 +14,29 @@
 
 (declare-function jal--detect-build-system "jal")
 
+(defconst jal--debug-buffer-name "*JAL Debug*"
+  "Name of the buffer used for JAL debug/error output.")
+
+(defun jal--debug-log (format-string &rest args)
+  "Append a timestamped debug entry to the JAL debug buffer.
+FORMAT-STRING and ARGS follow the same convention as `format'.
+The buffer is created if it does not exist.
+Use `M-x jal-show-debug-log' to display it."
+  (let ((msg (apply #'format format-string args))
+        (buf (get-buffer-create jal--debug-buffer-name)))
+    (with-current-buffer buf
+      (goto-char (point-max))
+      (insert (format-time-string "[%Y-%m-%d %H:%M:%S] "))
+      (insert msg)
+      (unless (string-suffix-p "\n" msg)
+        (insert "\n")))))
+
+;;;###autoload
+(defun jal-show-debug-log ()
+  "Display the JAL debug buffer."
+  (interactive)
+  (display-buffer (get-buffer-create jal--debug-buffer-name)))
+
 (defun jal--warn-interface-changed (fn-name package-name)
   "Warn that FN-NAME from PACKAGE-NAME is missing, suggesting to file an issue."
   (let ((msg (format (concat "JAL: `%s' is not defined. "
