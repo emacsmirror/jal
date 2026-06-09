@@ -1,4 +1,17 @@
-;;; jal-build-maven.el --- Maven detection for Java Agent Loader -*- lexical-binding: t; -*-
+;;; java-agent-loader-build-maven.el --- Maven detection for Java Agent Loader -*- lexical-binding: t; -*-
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;; Author: Saulo Toledo <saulotoledo@gmail.com>
 
@@ -7,7 +20,7 @@
 
 ;;; Code:
 
-(require 'jal-utils)
+(require 'java-agent-loader-utils)
 
 (defun jal--maven-extract-agent-dependency-info (mvn-output agent-id)
   "Extract the maven agent AGENT-ID from MVN-OUTPUT.
@@ -82,7 +95,8 @@ Handles G:A:V (3), G:A:P:V:S (5), and G:A:P:C:V:S (6) formats."
 
 (defun jal--maven-detect-agents-async (project-root agents-list callback)
   "Detect AGENTS-LIST in PROJECT-ROOT using Maven asynchronously.
-Calls CALLBACK with a list of (agent-id path version) entries, or nil on failure."
+Calls CALLBACK with a list of (agent-id path version) entries,
+or nil on failure."
   (if (not (executable-find "mvn"))
     (progn
       (warn "JAL: Maven executable not found in your PATH")
@@ -129,5 +143,5 @@ Calls CALLBACK with a list of (agent-id path version) entries, or nil on failure
                     (funcall callback (nreverse found-agents))))))))))))
 
 
-(provide 'jal-build-maven)
-;;; jal-build-maven.el ends here
+(provide 'java-agent-loader-build-maven)
+;;; java-agent-loader-build-maven.el ends here

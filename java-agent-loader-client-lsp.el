@@ -1,4 +1,17 @@
-;;; jal-client-lsp.el --- LSP-Java integration for JAL -*- lexical-binding: t; -*-
+;;; java-agent-loader-client-lsp.el --- LSP-Java integration for JAL -*- lexical-binding: t; -*-
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;; Author: Saulo Toledo <saulotoledo@gmail.com>
 
@@ -7,9 +20,9 @@
 
 ;;; Code:
 
-(require 'jal)
-(require 'jal-vars)
-(require 'jal-known-agents)
+(require 'java-agent-loader)
+(require 'java-agent-loader-vars)
+(require 'java-agent-loader-known-agents)
 
 (defvar lsp-java-vmargs)
 (defvar lsp-java-java-path)
@@ -76,5 +89,5 @@ This function is called automatically when lsp-java is loaded."
   (add-hook 'lsp-after-initialize-hook #'jal-find-and-configure-agents)
   (add-hook 'jal-agents-detected-hook #'jal--lsp-java-restart))
 
-(provide 'jal-client-lsp)
-;;; jal-client-lsp.el ends here
+(provide 'java-agent-loader-client-lsp)
+;;; java-agent-loader-client-lsp.el ends here

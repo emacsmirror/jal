@@ -1,4 +1,17 @@
-;;; jal-utils.el --- Utilities for Java Agent Loader -*- lexical-binding: t; -*-
+;;; java-agent-loader-utils.el --- Utilities for Java Agent Loader -*- lexical-binding: t; -*-
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;; Author: Saulo Toledo <saulotoledo@gmail.com>
 
@@ -7,8 +20,8 @@
 
 ;;; Code:
 
-(require 'jal-vars)
-(require 'jal-known-agents)
+(require 'java-agent-loader-vars)
+(require 'java-agent-loader-known-agents)
 (require 'project)
 (require 'format-spec)
 
@@ -26,7 +39,7 @@ Use `M-x jal-show-debug-log' to display it."
          (buf (get-buffer-create jal--debug-buffer-name)))
     (with-current-buffer buf
       (goto-char (point-max))
-      (insert (format-time-string "[%Y-%m-%d %H:%M:%S] "))
+      (insert (format-time-string "[%F %T] "))
       (insert msg)
       (unless (string-suffix-p "\n" msg)
         (insert "\n")))))
@@ -39,12 +52,12 @@ Use `M-x jal-show-debug-log' to display it."
 
 (defun jal--warn-interface-changed (fn-name package-name)
   "Warn that FN-NAME from PACKAGE-NAME is missing, suggesting to file an issue."
-  (let ((msg (format (concat "JAL: `%s' is not defined. "
-                       "%s may have changed its internal interface. "
-                       "JAL will not inject javaagent arguments into JDTLS. "
-                       "Please file an issue at "
-                       "https://github.com/saulotoledo/java-agent-loader "
-                       "including your %s package version.")
+  (let ((msg (format "JAL: `%s' is not defined. \
+%s may have changed its internal interface. \
+JAL will not inject javaagent arguments into JDTLS. \
+Please file an issue at \
+https://github.com/saulotoledo/java-agent-loader \
+including your %s package version."
                fn-name package-name package-name)))
     (display-warning 'jal msg :warning)))
 
@@ -192,5 +205,5 @@ in the new scoped format."
         (when (jal--config-scoped-p full-config)
           (cadr (assoc java-key full-config)))))))
 
-(provide 'jal-utils)
-;;; jal-utils.el ends here
+(provide 'java-agent-loader-utils)
+;;; java-agent-loader-utils.el ends here

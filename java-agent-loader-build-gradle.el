@@ -1,4 +1,17 @@
-;;; jal-build-gradle.el --- Gradle detection for Java Agent Loader -*- lexical-binding: t; -*-
+;;; java-agent-loader-build-gradle.el --- Gradle detection for Java Agent Loader -*- lexical-binding: t; -*-
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;; Author: Saulo Toledo <saulotoledo@gmail.com>
 
@@ -7,7 +20,7 @@
 
 ;;; Code:
 
-(require 'jal-utils)
+(require 'java-agent-loader-utils)
 
 (defun jal--gradle-write-init-script (agents-list)
   "Write a Gradle init script that lists resolved jars for AGENTS-LIST.
@@ -56,7 +69,8 @@ Returns an alist of (artifact-id . (group version absolute-path)) entries."
 
 (defun jal--gradle-detect-agents-async (project-root agents-list callback)
   "Detect AGENTS-LIST in PROJECT-ROOT using Gradle asynchronously.
-Calls CALLBACK with a list of (agent-id path version) entries, or nil on failure."
+Calls CALLBACK with a list of (agent-id path version) entries,
+or nil on failure."
   (let* ((gradle-cmd (cond
                        ((file-executable-p (expand-file-name "gradlew" project-root)) "./gradlew")
                        ((executable-find "gradle") "gradle")
@@ -116,5 +130,5 @@ Calls CALLBACK with a list of (agent-id path version) entries, or nil on failure
                     (funcall callback (nreverse found-agents))))))))))))
 
 
-(provide 'jal-build-gradle)
-;;; jal-build-gradle.el ends here
+(provide 'java-agent-loader-build-gradle)
+;;; java-agent-loader-build-gradle.el ends here
