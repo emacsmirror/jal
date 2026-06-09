@@ -62,24 +62,34 @@ that JAL itself triggers after first-time detection.")
 (defvar jal--spinner-timer nil
   "Active timer for the detection progress spinner, or nil when idle.")
 
+(defvar jal--mode-line-spinner ""
+  "Current spinner text displayed in the mode line during detection.")
+
 (defun jal--spinner-start (msg)
-  "Animate a spinner in the echo area prefixed with MSG while detection runs."
-  (let ((i 0))
+  "Animate a spinner in the mode line with MSG while detection is running."
+  (setq jal--mode-line-spinner "")
+  (unless (memq 'jal--mode-line-spinner global-mode-string)
+    (setq global-mode-string
+      (append (or global-mode-string '("")) '(jal--mode-line-spinner))))
+  (let ((frame-index 0))
     (setq jal--spinner-timer
       (run-with-timer
         0 0.1
         (lambda ()
-          (message "%s %s" msg
-            (aref jal--spinner-frames
-              (% i (length jal--spinner-frames))))
-          (setq i (1+ i)))))))
+          (setq jal--mode-line-spinner
+            (format " [%s %s]" msg
+              (aref jal--spinner-frames frame-index)))
+          (setq frame-index (mod (1+ frame-index) (length jal--spinner-frames)))
+          (force-mode-line-update t))))))
 
 (defun jal--spinner-stop ()
-  "Cancel the detection spinner and clear the echo area."
+  "Cancel the detection spinner and clear the spinner from the mode line."
   (when jal--spinner-timer
     (cancel-timer jal--spinner-timer)
-    (setq jal--spinner-timer nil)
-    (message nil)))
+    (setq jal--spinner-timer nil))
+  (setq jal--mode-line-spinner "")
+  (setq global-mode-string (delq 'jal--mode-line-spinner global-mode-string))
+  (force-mode-line-update t))
 
 ;; ====================================================================
 ;; Core Hook Function (Functional Injector)
@@ -89,10 +99,8 @@ that JAL itself triggers after first-time detection.")
   "Return the current vm args with the java agents appended.
 Reads configuration from the global cache file, filters for the current
 project, and builds the javaagents arguments."
-
   (let* ((agent-config-list (jal--load-agent-configs-from-project))
           (agent-args '()))
-
     (when agent-config-list
       (dolist (agent-entry agent-config-list)
         (let* ((agent-id (car agent-entry))
@@ -103,11 +111,9 @@ project, and builds the javaagents arguments."
                              (if (not (string-empty-p agent-params))
                                (concat "=" agent-params)
                                ""))))
-
           (when (and (stringp agent-path) (file-exists-p agent-path))
             (message "JAL: Injecting -javaagent:%s (v%s) into JDTLS startup." agent-id agent-version)
             (push agent-arg agent-args)))))
-
     agent-args))
 
 
@@ -122,23 +128,19 @@ CALLBACK is called with the list of detected agent entries, or nil on failure."
     (progn
       (message "JAL: Prerequisites (project) not met. Skipping operation.")
       (funcall callback nil))
-
     (let* ((project (project-current))
             (project-root (and project (project-root project)))
             (build-system (jal--detect-build-system project-root)))
-
       (cond
         ((not project-root)
           (message "JAL: Not in a recognized project. Skipping detection.")
           (funcall callback nil))
-
         ((not build-system)
           (message "JAL: No supported build system found. Skipping detection.")
           (funcall callback nil))
-
         (t
           (jal--spinner-start
-            (format "JAL: Running %s dependency analysis" (symbol-name build-system)))
+            (format "JAL:%s" (symbol-name build-system)))
           (let ((wrapped-callback
                   (lambda (results)
                     (jal--spinner-stop)
@@ -155,11 +157,9 @@ CALLBACK is called with the list of detected agent entries, or nil on failure."
 Starts async detection and returns immediately; results are cached
 and `jal-agents-detected-hook' is run once detection completes."
   (interactive)
-
   (let* ((project (and (fboundp 'project-current) (project-current)))
           (project-root (and project (file-name-as-directory (project-root project))))
           (cache-file (and project-root (jal--get-cache-file project-root))))
-
     (when cache-file
       (let* ((existing-config (and (file-exists-p cache-file)
                                 (jal--read-project-config project-root)))
@@ -251,9 +251,7 @@ Returns the list of agent configurations found, or nil."
         (when (and scope-key
                 (not (gethash scope-key jal--configured-scopes)))
           (puthash scope-key t jal--configured-scopes)
-
           (let ((agent-configs (jal--load-agent-configs-from-project)))
-
             (if (or (null agent-configs)
                   (not (proper-list-p agent-configs)))
               (let ((build-system (and project-root
@@ -267,7 +265,6 @@ Returns the list of agent configurations found, or nil."
                     ;; asked again on the next Emacs session.
                     (remhash scope-key jal--configured-scopes)
                     (message "JAL: Java agents configuration skipped for this session. Run M-x jal-detect-java-agents to do it later."))))
-
               (message "JAL: Found %d cached agent(s) for this project. Applying configurations."
                 (length agent-configs))
               (dolist (agent-entry agent-configs)
